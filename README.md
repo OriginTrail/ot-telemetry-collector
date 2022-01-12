@@ -1,0 +1,1 @@
+# ot-telemetry-collector
