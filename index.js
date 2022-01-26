@@ -1,17 +1,17 @@
 const path = require("path");
-const {execSync} = require("child_process");
+const { execSync } = require("child_process");
 const fs = require("fs");
 const axios = require('axios');
 const FormData = require('form-data');
 const converter = require('json-2-csv');
 const split = require('split');
-const {finished} = require('stream');
+const { finished } = require('stream');
 // Constructing promisify from util
-const {promisify} = require('util');
+const { promisify } = require('util');
 // Defining finishedAsync method
 const finishedAsync = promisify(finished);
 
-function initialize(config, logger){
+function initialize(config, logger) {
     this.config = config;
     this.logger = logger;
     this.config.logFilename = 'active.log';
@@ -24,11 +24,17 @@ async function aggregateTelemetryData() {
 
     this.logger.info('Started sending telemetry data command');
 
-    await execSync(`cat ${path.join(otNodeLogsPath, this.config.logFilename)} | grep \'"level":15\' | grep -v \'level-change\' > ${intermediateConversionFile}`);
+    try {
+        await execSync(`cat ${path.join(otNodeLogsPath, this.config.logFilename)} | grep \'"level":15\' | grep -v \'level-change\' > ${intermediateConversionFile}`);
+    } catch (e) {
+        // No data to be returned
+        return null;
+    }
+
     // Read json objects from log
     let jsonLogObjects = [];
     const readable = fs.createReadStream(intermediateConversionFile)
-        .pipe(split(JSON.parse, null, {trailing: false}))
+        .pipe(split(JSON.parse, null, { trailing: false }))
         .on('data', function (obj) {
             jsonLogObjects.push(obj);
         })
@@ -40,8 +46,8 @@ async function aggregateTelemetryData() {
     const jsonld = {
         "@context": "http://schema.org/",
         "@type": "OTTelemetry",
-        "minTimestamp": Math.min(...jsonLogObjects.map(x=>x.time)),
-        "maxTimestamp": Math.max(...jsonLogObjects.map(x=>x.time)),
+        "minTimestamp": Math.min(...jsonLogObjects.map(x => x.time)),
+        "maxTimestamp": Math.max(...jsonLogObjects.map(x => x.time)),
         "data": jsonLogObjects.map(x => ({
             "eventName": x.Event_name,
             "eventTimestamp": x.time,
@@ -53,16 +59,16 @@ async function aggregateTelemetryData() {
 
     // Convert json objects into csv lines and store them
     await converter.json2csv(jsonLogObjects, (err, csv) => {
-            if (err) {
-                throw err;
-            }
-            fs.writeFileSync(`${path.join(otNodeLogsPath, this.csvFilename)}`, csv);
-        },
+        if (err) {
+            throw err;
+        }
+        fs.writeFileSync(`${path.join(otNodeLogsPath, this.csvFilename)}`, csv);
+    },
         {
             keys:
                 [
-                    {field: 'hostname', title: 'Id_node'}, 'Id_operation', 'Operation_name',
-                    'Event_name', {field: 'time', title: 'Event_time'}, 'Event_value1',
+                    { field: 'hostname', title: 'Id_node' }, 'Id_operation', 'Operation_name',
+                    'Event_name', { field: 'time', title: 'Event_time' }, 'Event_value1',
                     'Event_value2', 'Event_value3', 'Event_value4'
                 ]
             , emptyFieldValue: null
