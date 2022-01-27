@@ -77,18 +77,17 @@ async function aggregateTelemetryData() {
     // Send csv file to telemetry hub
     let data = new FormData();
     data.append('file', fs.createReadStream(`${path.join(otNodeLogsPath, this.csvFilename)}`));
-    try {
-        axios({
-            method: 'post',
-            url: this.config.url,
-            headers: {
-                ...data.getHeaders()
-            },
-            data: data
-        });
-    } catch (e) {
+
+    axios({
+        method: 'post',
+        url: this.config.url,
+        headers: {
+            ...data.getHeaders()
+        },
+        data: data
+    }).catch((e) => {
         this.logger.error(`Error while sending telemetry data to Telemetry hub: ${e}`);
-    }
+    });
 
     // Remove intermediate file
     execSync(`rm ${intermediateConversionFile}`);
