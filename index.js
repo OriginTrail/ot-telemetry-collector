@@ -11,6 +11,8 @@ const { promisify } = require("util");
 // Defining finishedAsync method
 const finishedAsync = promisify(finished);
 
+const eventEndTimeLimit = 5 * 60 * 1000; // after this time limit, events are sent even if not ended
+
 function initialize(config, logger) {
   this.config = config;
   this.logger = logger;
@@ -28,7 +30,7 @@ async function aggregateTelemetryData() {
   this.logger.info("Started sending telemetry data command");
 
   try {
-    await execSync(
+    execSync(
       `cat ${path.join(
         otNodeLogsPath,
         this.config.logFilename
@@ -52,12 +54,28 @@ async function aggregateTelemetryData() {
     });
   await finishedAsync(readable);
 
+  const lastJsonLogObject = jsonLogObjects[jsonLogObjects.length - 1];
+
+  const time5minAgo = Date.now() - eventEndTimeLimit;
+  const jsonObjectsNextIteration = [];
+  const jsonLogObjectToSend = jsonLogObjects.filter(
+    (x) =>
+      x.time <= time5minAgo || // send if older than 5 min
+      !x.Event_name.endsWith("start") || // send if not a starting event
+      jsonLogObjects.filter(
+        (x2) =>
+          x2.Id_operation === x.Id_operation &&
+          x2.Event_name.replace("end", "") === x.Event_name.replace("start", "")
+      ).length != 0 || // send if operation has both starting and closing events for specific event
+      (jsonObjectsNextIteration.push(x) && false) // don't send, keep trac of starting event and include in next active.log file
+  );
+
   const jsonld = {
     "@context": "http://schema.org/",
     "@type": "OTTelemetry",
-    minTimestamp: Math.min(...jsonLogObjects.map((x) => x.time)),
-    maxTimestamp: Math.max(...jsonLogObjects.map((x) => x.time)),
-    data: jsonLogObjects.map((x) => ({
+    minTimestamp: Math.min(...jsonLogObjectToSend.map((x) => x.time)),
+    maxTimestamp: Math.max(...jsonLogObjectToSend.map((x) => x.time)),
+    data: jsonLogObjectToSend.map((x) => ({
       eventName: x.Event_name,
       eventTimestamp: x.time,
       operationId: x.Id_operation,
@@ -68,7 +86,7 @@ async function aggregateTelemetryData() {
 
   // Convert json objects into csv lines and store them
   await converter.json2csv(
-    jsonLogObjects,
+    jsonLogObjectToSend,
     (err, csv) => {
       if (err) {
         throw err;
@@ -121,6 +139,8 @@ async function aggregateTelemetryData() {
       this.config.logFilename
     )}`
   );
+
+  //TODO insert jsonObjectsNextIteration at start of active.log file
 
   return jsonld;
 }
