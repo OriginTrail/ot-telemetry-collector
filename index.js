@@ -114,12 +114,12 @@ async function aggregateTelemetryData() {
   // Remove intermediate file
   execSync(`rm ${intermediateConversionFile}`);
 
-  // Truncate log file - leave only last 30 lines
-  await execSync(
-    `tail -n30 ${path.join(
+  // Truncate log file - leave only newly created lines
+  execSync(
+    `sed -i 1,/${lastJsonLogObject.time}/d ${path.join(
       otNodeLogsPath,
       this.config.logFilename
-    )} > ${path.join(otNodeLogsPath, this.config.logFilename)}`
+    )}`
   );
 
   return jsonld;
