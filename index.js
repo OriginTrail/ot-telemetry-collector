@@ -54,24 +54,25 @@ async function aggregateTelemetryData() {
     .createReadStream(intermediateConversionFile)
     .pipe(split(JSON.parse, null, { trailing: false }))
     .on("data", function (obj) {
-      if (obj.time <= eventTimeLimitAgo) {
-        processedLogObjects.push(obj);
-      } else {
-        if (!operations[obj.Id_operation]) {
-          operations[obj.Id_operation].score = 0;
-          operations[obj.Id_operation].events = [];
-        }
-        if (obj.Event_name.endsWith("start")) {
-          operations[obj.Id_operation].score += 1;
-        } else if (
-          obj.Event_name.endsWith("end") &&
-          operations[obj.Id_operation].score > 0
-        ) {
-          operations[obj.Id_operation].score -= 1;
-        }
-        operations[obj.Id_operation].events.push(obj);
+      if(obj.Operation_name !== Error) {
+        if (obj.time <= eventTimeLimitAgo) {
+            processedLogObjects.push(obj);
+          } else {
+            if (!operations[obj.Id_operation]) {
+                operations[obj.Id_operation] = {score : 0, events : []};
+            }
+            if (obj.Event_name.endsWith("start")) {
+              operations[obj.Id_operation].score += 1;
+            } else if (
+              obj.Event_name.endsWith("end") &&
+              operations[obj.Id_operation].score > 0
+            ) {
+              operations[obj.Id_operation].score -= 1;
+            }
+            operations[obj.Id_operation].events.push(obj);
+          }
+          lastProcessedTimestamp = obj.time;
       }
-      lastProcessedTimestamp = obj.time;
     })
     .on("error", function (err) {
       this.logger.error(err);
@@ -156,27 +157,21 @@ async function aggregateTelemetryData() {
     )}`
   );
 
-  const stringObjects = JSON.stringify(jsonLogObjects);
+  const stringObjects = JSON.stringify(unprocessedLogObjects);
   fs.writeFileSync(
     intermediateConversionFile,
-    JSON.stringify(
       stringObjects
         .substring(1, stringObjects.length - 1) // remove "[" and "]"
         .split("},{")
         .join("}\n{") // separate objects with end of line instead of ","
         .concat("\n")
-    )
-  );
+    );
 
   execSync(
     `cat ${path.join(
       otNodeLogsPath,
       LOG_FILENAME
-    )} >> ${intermediateConversionFile}`
-  );
-
-  execSync(
-    `mv ${intermediateConversionFile} ${path.join(
+    )} >> ${intermediateConversionFile} && mv ${intermediateConversionFile} ${path.join(
       otNodeLogsPath,
       LOG_FILENAME
     )}`
