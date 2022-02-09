@@ -11,29 +11,32 @@ const { promisify } = require("util");
 // Defining finishedAsync method
 const finishedAsync = promisify(finished);
 
-const eventEndTimeLimit = 5 * 60 * 1000; // after this time limit, events are sent even if not ended
+const EVENT_TIME_LIMIT = 5 * 60 * 1000; // after this time limit, events are sent even if not ended
+const CSV_FILENAME = "telhub_logs.csv";
+const LOG_FILENAME = "active.log";
+const LOGS_DIR_NAME = "logs";
+const TMP_LOG_FILENAME = "intermediateFile.log";
 
 function initialize(config, logger) {
   this.config = config;
   this.logger = logger;
-  this.config.logFilename = "active.log";
 }
 
 async function aggregateTelemetryData() {
-  this.csvFilename = "telhub_logs.csv";
-  const otNodeLogsPath = path.join(this.config.appRootPath, "logs");
+  this.csvFilename = CSV_FILENAME;
+  const otNodeLogsPath = path.join(this.config.appRootPath, LOGS_DIR_NAME);
   const intermediateConversionFile = path.join(
     otNodeLogsPath,
-    `intermediateFile.log`
+    TMP_LOG_FILENAME
   );
 
-  this.logger.info("Started sending telemetry data command");
+  this.logger.info("Started sending telemetry data");
 
   try {
     execSync(
       `cat ${path.join(
         otNodeLogsPath,
-        this.config.logFilename
+        LOG_FILENAME
       )} | grep \'"level":15\' | grep -v \'level-change\' > ${intermediateConversionFile}`
     );
   } catch (e) {
@@ -42,40 +45,53 @@ async function aggregateTelemetryData() {
   }
 
   // Read json objects from log
-  let jsonLogObjects = [];
+  let processedLogObjects = [];
+  let unprocessedLogObjects = [];
+  let operations = {};
+  let lastProcessedTimestamp = 0;
+  const eventTimeLimitAgo = Date.now() - EVENT_TIME_LIMIT;
   const readable = fs
     .createReadStream(intermediateConversionFile)
     .pipe(split(JSON.parse, null, { trailing: false }))
     .on("data", function (obj) {
-      jsonLogObjects.push(obj);
+      if (obj.time <= eventTimeLimitAgo) {
+        processedLogObjects.push(obj);
+      } else {
+        if (!operations[obj.Id_operation]) {
+          operations[obj.Id_operation].score = 0;
+          operations[obj.Id_operation].events = [];
+        }
+        if (obj.Event_name.endsWith("start")) {
+          operations[obj.Id_operation].score += 1;
+        } else if (
+          obj.Event_name.endsWith("end") &&
+          operations[obj.Id_operation].score > 0
+        ) {
+          operations[obj.Id_operation].score -= 1;
+        }
+        operations[obj.Id_operation].events.push(obj);
+      }
+      lastProcessedTimestamp = obj.time;
     })
     .on("error", function (err) {
-      console.log(err);
+      this.logger.error(err);
     });
   await finishedAsync(readable);
 
-  const lastJsonLogObject = jsonLogObjects[jsonLogObjects.length - 1];
-
-  const time5minAgo = Date.now() - eventEndTimeLimit;
-  const jsonObjectsNextIteration = [];
-  const jsonLogObjectToSend = jsonLogObjects.filter(
-    (x) =>
-      x.time <= time5minAgo || // send if older than 5 min
-      !x.Event_name.endsWith("start") || // send if not a starting event
-      jsonLogObjects.filter(
-        (x2) =>
-          x2.Id_operation === x.Id_operation &&
-          x2.Event_name.replace("end", "") === x.Event_name.replace("start", "")
-      ).length != 0 || // send if operation has both starting and closing events for specific event
-      (jsonObjectsNextIteration.push(x) && false) // don't send, keep trac of starting event and include in next active.log file
-  );
+  for (const operation in operations) {
+    if (operations[operation] === 0) {
+      processedLogObjects.concat(operations[operation].events);
+    } else {
+      unprocessedLogObjects.concat(operations[operation].events);
+    }
+  }
 
   const jsonld = {
     "@context": "http://schema.org/",
     "@type": "OTTelemetry",
-    minTimestamp: Math.min(...jsonLogObjectToSend.map((x) => x.time)),
-    maxTimestamp: Math.max(...jsonLogObjectToSend.map((x) => x.time)),
-    data: jsonLogObjectToSend.map((x) => ({
+    minTimestamp: Math.min(...processedLogObjects.map((x) => x.time)),
+    maxTimestamp: Math.max(...processedLogObjects.map((x) => x.time)),
+    data: processedLogObjects.map((x) => ({
       eventName: x.Event_name,
       eventTimestamp: x.time,
       operationId: x.Id_operation,
@@ -86,7 +102,7 @@ async function aggregateTelemetryData() {
 
   // Convert json objects into csv lines and store them
   await converter.json2csv(
-    jsonLogObjectToSend,
+    processedLogObjects,
     (err, csv) => {
       if (err) {
         throw err;
@@ -134,13 +150,37 @@ async function aggregateTelemetryData() {
 
   // Truncate log file - leave only newly created lines
   execSync(
-    `sed -i 1,/${lastJsonLogObject.time}/d ${path.join(
+    `sed -i 1,/${lastProcessedTimestamp}/d ${path.join(
       otNodeLogsPath,
-      this.config.logFilename
+      LOG_FILENAME
     )}`
   );
 
-  //TODO insert jsonObjectsNextIteration at start of active.log file
+  const stringObjects = JSON.stringify(jsonLogObjects);
+  fs.writeFileSync(
+    intermediateConversionFile,
+    JSON.stringify(
+      stringObjects
+        .substring(1, stringObjects.length - 1) // remove "[" and "]"
+        .split("},{")
+        .join("}\n{") // separate objects with end of line instead of ","
+        .concat("\n")
+    )
+  );
+
+  execSync(
+    `cat ${path.join(
+      otNodeLogsPath,
+      LOG_FILENAME
+    )} >> ${intermediateConversionFile}`
+  );
+
+  execSync(
+    `mv ${intermediateConversionFile} ${path.join(
+      otNodeLogsPath,
+      LOG_FILENAME
+    )}`
+  );
 
   return jsonld;
 }
