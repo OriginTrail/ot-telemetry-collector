@@ -54,8 +54,7 @@ async function aggregateTelemetryData() {
     .createReadStream(intermediateConversionFile)
     .pipe(split(JSON.parse, null, { trailing: false }))
     .on("data", function (obj) {
-      if(obj.Operation_name !== Error) {
-        if (obj.time <= eventTimeLimitAgo) {
+        if (obj.time <= eventTimeLimitAgo || obj.Operation_name === "Error") {
             processedLogObjects.push(obj);
           } else {
             if (!operations[obj.Id_operation]) {
@@ -72,7 +71,6 @@ async function aggregateTelemetryData() {
             operations[obj.Id_operation].events.push(obj);
           }
           lastProcessedTimestamp = obj.time;
-      }
     })
     .on("error", function (err) {
       this.logger.error(err);
