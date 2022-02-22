@@ -78,7 +78,7 @@ async function aggregateTelemetryData() {
   await finishedAsync(readable);
 
   for (const operation in operations) {
-    if (operations[operation] === 0) {
+    if (operations[operation].score === 0) {
       processedLogObjects.concat(operations[operation].events);
     } else {
       unprocessedLogObjects.concat(operations[operation].events);
