@@ -99,51 +99,6 @@ async function aggregateTelemetryData() {
     })),
   };
 
-  // Convert json objects into csv lines and store them
-  await converter.json2csv(
-    processedLogObjects,
-    (err, csv) => {
-      if (err) {
-        throw err;
-      }
-      fs.writeFileSync(`${path.join(otNodeLogsPath, this.csvFilename)}`, csv);
-    },
-    {
-      keys: [
-        { field: "hostname", title: "Id_node" },
-        "Id_operation",
-        "Operation_name",
-        "Event_name",
-        { field: "time", title: "Event_time" },
-        "Event_value1",
-        "Event_value2",
-        "Event_value3",
-        "Event_value4",
-      ],
-      emptyFieldValue: null,
-    }
-  );
-
-  // Send csv file to telemetry hub
-  let data = new FormData();
-  data.append(
-    "file",
-    fs.createReadStream(`${path.join(otNodeLogsPath, this.csvFilename)}`)
-  );
-
-  axios({
-    method: "post",
-    url: this.config.url,
-    headers: {
-      ...data.getHeaders(),
-    },
-    data: data,
-  }).catch((e) => {
-    this.logger.error(
-      `Error while sending telemetry data to Telemetry hub: ${e}`
-    );
-  });
-
   // Remove intermediate file
   execSync(`rm ${intermediateConversionFile}`);
 
@@ -166,13 +121,16 @@ async function aggregateTelemetryData() {
     );
 
   execSync(
-    `cat ${path.join(
-      otNodeLogsPath,
-      LOG_FILENAME
-    )} >> ${intermediateConversionFile} && mv ${intermediateConversionFile} ${path.join(
-      otNodeLogsPath,
-      LOG_FILENAME
-    )}`
+      `cat ${path.join(
+          otNodeLogsPath,
+          LOG_FILENAME
+      )} >> ${intermediateConversionFile}`);
+
+  execSync(
+      `cat ${intermediateConversionFile} > ${path.join(
+          otNodeLogsPath,
+          LOG_FILENAME
+      )}`
   );
 
   return jsonld;
