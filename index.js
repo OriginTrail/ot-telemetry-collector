@@ -79,9 +79,9 @@ async function aggregateTelemetryData() {
 
   for (const operation in operations) {
     if (operations[operation].score === 0) {
-      processedLogObjects.concat(operations[operation].events);
+      processedLogObjects = processedLogObjects.concat(operations[operation].events);
     } else {
-      unprocessedLogObjects.concat(operations[operation].events);
+      unprocessedLogObjects = unprocessedLogObjects.concat(operations[operation].events);
     }
   }
 
@@ -132,6 +132,10 @@ async function aggregateTelemetryData() {
           LOG_FILENAME
       )}`
   );
+
+  if(!jsonld.data.length) {
+    return undefined;
+  }
 
   return jsonld;
 }
