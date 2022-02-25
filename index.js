@@ -54,7 +54,7 @@ async function aggregateTelemetryData() {
     .createReadStream(intermediateConversionFile)
     .pipe(split(JSON.parse, null, { trailing: false }))
     .on("data", function (obj) {
-        if (obj.time <= eventTimeLimitAgo || obj.Operation_name === "Error") {
+        if (obj.time <= eventTimeLimitAgo || obj.Operation_name === "Error" || obj.Operation_name === "KeepAlive") {
             processedLogObjects.push(obj);
           } else {
             if (!operations[obj.Id_operation]) {
